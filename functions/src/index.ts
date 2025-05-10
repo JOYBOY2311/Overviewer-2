@@ -123,3 +123,41 @@ export const checkForExistingCompanies = functions.https.onCall(async (data: { c
   }
   return { results };
 });
+
+export const saveCompanyEntry = functions.https.onCall(async (data: any, context) => {
+  const originalCompanyName = data.companyName;
+  const originalCountry = data.country;
+  const originalWebsite = data.website;
+  const metadata = data.metadata;
+
+  const normalizedCompanyName = originalCompanyName ? originalCompanyName.trim().toLowerCase() : undefined;
+  const normalizedCountry = originalCountry ? originalCountry.trim().toLowerCase() : undefined;
+  const normalizedWebsite = normalizeUrlInternal(originalWebsite);
+
+  // Ensure at least one required field is present after normalization
+  if (!normalizedCompanyName && !normalizedCountry && !normalizedWebsite) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'At least one of companyName, country, or website must be provided and valid.'
+    );
+  }
+
+  const companyData: { [key: string]: any } = {
+    originalCompanyName,
+    originalCountry,
+    originalWebsite,
+    metadata: metadata || {}, // Store metadata, default to empty object if not provided
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  if (normalizedCompanyName) companyData.normalizedCompanyName = normalizedCompanyName;
+  if (normalizedCountry) companyData.normalizedCountry = normalizedCountry;
+  if (normalizedWebsite) companyData.website = normalizedWebsite; // Using 'website' as the field name for the normalized website
+
+  try {
+    await db.collection('companies').add(companyData);
+    return { success: true };
+  } catch (error) {
+    throw new functions.https.HttpsError('internal', 'Error saving company entry.', error);
+  }
+});
