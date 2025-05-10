@@ -43,7 +43,12 @@ interface CompanyInputData {
 interface CompanyMatchOutput {
   originalIndex: number;
   matched: boolean;
-  metadata?: any;
+  metadata?: {
+    summary?: string;
+    independenceCriteria?: string;
+    insufficientInformation?: string;
+    [key: string]: any; // Keep it flexible for other metadata
+  };
   error?: string;
 }
 
@@ -83,7 +88,6 @@ export const checkForExistingCompanies = functions.https.onCall(async (data: { c
       queries.push(db.collection('companies').where('website', '==', normWebsite).where('timestamp', '>=', sixMonthsAgoTimestamp).get());
     }
     
-    // If no fields to query by, skip to avoid error (though caught by all-null check above)
     if (queries.length === 0) {
         results.push({ originalIndex: company.originalIndex, matched: false });
         continue;
@@ -116,7 +120,7 @@ export const checkForExistingCompanies = functions.https.onCall(async (data: { c
       results.push({
         originalIndex: company.originalIndex,
         matched: !!foundMatchData,
-        metadata: foundMatchData ? foundMatchData.metadata : undefined,
+        metadata: foundMatchData ? (foundMatchData.metadata as CompanyMatchOutput['metadata']) : undefined,
       });
 
     } catch (error: any) {
@@ -131,13 +135,14 @@ export const saveCompanyEntry = functions.https.onCall(async (data: any, context
   const originalCompanyName = data.companyName;
   const originalCountry = data.country;
   const originalWebsite = data.website;
-  const metadata = data.metadata;
+  
+  // Metadata now includes summary, independenceCriteria, and insufficientInformation
+  const metadata = data.metadata || {}; 
 
   const normalizedCompanyName = originalCompanyName ? originalCompanyName.trim().toLowerCase() : undefined;
   const normalizedCountry = originalCountry ? originalCountry.trim().toLowerCase() : undefined;
   const normalizedWebsite = normalizeUrlInternal(originalWebsite);
 
-  // Ensure at least one required field is present after normalization
   if (!normalizedCompanyName && !normalizedCountry && !normalizedWebsite) {
     throw new functions.https.HttpsError(
       'invalid-argument',
@@ -149,13 +154,18 @@ export const saveCompanyEntry = functions.https.onCall(async (data: any, context
     originalCompanyName,
     originalCountry,
     originalWebsite,
-    metadata: metadata || {}, // Store metadata, default to empty object if not provided
+    metadata: { // Ensure all expected metadata fields are explicitly handled or passed through
+        summary: metadata.summary || '',
+        independenceCriteria: metadata.independenceCriteria || '',
+        insufficientInformation: metadata.insufficientInformation || '',
+        ...metadata // Pass through any other metadata fields
+    },
     timestamp: admin.firestore.FieldValue.serverTimestamp(),
   };
 
   if (normalizedCompanyName) companyData.normalizedCompanyName = normalizedCompanyName;
   if (normalizedCountry) companyData.normalizedCountry = normalizedCountry;
-  if (normalizedWebsite) companyData.website = normalizedWebsite; // Using 'website' as the field name for the normalized website
+  if (normalizedWebsite) companyData.website = normalizedWebsite;
 
   try {
     await db.collection('companies').add(companyData);
@@ -187,21 +197,22 @@ export const summarizeCompanyContent = functions.https.onCall(async (data: { con
     
     functions.logger.info('Genkit summarizeContentFlow returned:', result);
 
-    if (result.summary === UNUSABLE_CONTENT_RESPONSE) {
-      functions.logger.warn('Content was determined unusable by the LLM.');
-      return { status: "error", message: UNUSABLE_CONTENT_RESPONSE };
-    }
+    // The Genkit flow now directly provides all fields including handling of UNUSABLE_CONTENT_RESPONSE.
+    // The status is "success" if the flow executed, regardless of content usability.
+    return { 
+        status: "success", 
+        summary: result.summary,
+        independenceCriteria: result.independenceCriteria,
+        insufficientInformation: result.insufficientInformation
+    };
 
-    return { status: "success", summary: result.summary };
-
-  } catch (error: any) {
+  } catch (error: any)
+ {
     functions.logger.error('Error calling or processing summarizeContentFlow:', error);
     let errorMessage = 'An unexpected error occurred while summarizing content.';
     if (error.message) {
       errorMessage = error.message;
     }
-    // Additional check for Genkit specific errors if identifiable
-    // For example, if error has a 'details' field from HttpsError or specific structure
     throw new functions.https.HttpsError('internal', errorMessage, error.details || { originalError: error.message });
   }
 });

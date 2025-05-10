@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useCallback } from 'react';
@@ -5,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { parseXLSX, type ParsedXLSXData } from '@/lib/xlsx-parser';
 import { normalizeUrl } from '@/lib/url-normalizer';
 import { detectHeaders, type DetectHeadersInput, type DetectHeadersOutput } from '@/ai/flows/detect-headers';
-import { checkForExistingCompaniesCallable, type CompanyInput, type CompanyMatchResult } from '@/lib/firebase';
+import { checkForExistingCompaniesCallable, type CompanyInput, type CompanyMatchResult, type CompanyMetadata } from '@/lib/firebase';
 
 import { FileUploadArea } from '@/components/overviewer/FileUploadArea';
 import { ResultsDisplay, type TableDataRow as ResultsTableDataRow } from '@/components/overviewer/ResultsDisplay';
@@ -13,16 +14,17 @@ import { LoadingIndicator } from '@/components/overviewer/LoadingIndicator';
 import { ErrorMessage } from '@/components/overviewer/ErrorMessage';
 import { useToast } from '@/hooks/use-toast';
 
-// Extend TableDataRow to include processingStatus
+// Extend TableDataRow to include new metadata fields and processingStatus
 interface TableDataRow extends ResultsTableDataRow {
   processingStatus: 'Fetched' | 'To Process';
+  // summary, independenceCriteria, insufficientInformation are already in ResultsTableDataRow
 }
 
 interface ProcessedData {
   fileName: string;
   originalHeaders: string[];
   mappedHeaders: DetectHeadersOutput;
-  tableData: TableDataRow[];
+  tableData: TableDataRow[]; // Uses the extended TableDataRow from ResultsDisplay
 }
 
 export default function OverviewerPage() {
@@ -79,13 +81,11 @@ export default function OverviewerPage() {
             companyMatchResults = functionResult.results;
         } catch (fbError: any) {
             console.error("Firebase function error:", fbError);
-            // Show error to user, but continue processing to show data as "To Process"
             toast({
                 title: "Database Check Error",
                 description: `Could not check for existing company records: ${fbError.message}. Proceeding without pre-fetched data.`,
                 variant: "destructive",
             });
-            // Populate companyMatchResults with all false if function fails, so rows become "To Process"
             companyMatchResults = companiesToCheck.map(c => ({ originalIndex: c.originalIndex, matched: false }));
         }
       }
@@ -108,17 +108,20 @@ export default function OverviewerPage() {
         const matchInfo = companyResultsMap.get(index);
         const processingStatus = matchInfo?.matched ? 'Fetched' : 'To Process';
         
-        // If Firebase function reported an error for a specific row, mark as 'To Process'
-        // and potentially log or show a specific error for that row if needed in future.
         if (matchInfo?.error) {
           console.warn(`Error for row ${index} from Firebase function: ${matchInfo.error}`);
         }
+        
+        const metadata: CompanyMetadata | undefined = matchInfo?.metadata;
 
         return {
           id: `row-${index}`,
           values: displayRowValues,
           hasError,
           processingStatus,
+          summary: metadata?.summary,
+          independenceCriteria: metadata?.independenceCriteria,
+          insufficientInformation: metadata?.insufficientInformation,
         };
       });
 

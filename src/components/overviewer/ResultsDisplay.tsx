@@ -1,3 +1,4 @@
+
 'use client';
 
 import type { DetectHeadersOutput } from '@/ai/flows/detect-headers';
@@ -12,6 +13,9 @@ export interface TableDataRow {
   values: (string | undefined)[];
   hasError: boolean;
   processingStatus: 'Fetched' | 'To Process';
+  summary?: string;
+  independenceCriteria?: string;
+  insufficientInformation?: string;
 }
 
 interface ResultsDisplayProps {
@@ -65,6 +69,7 @@ export function ResultsDisplay({ fileName, originalHeaders, mappedHeaders, table
                     </TableHead>
                   ))}
                   <TableHead className="font-semibold whitespace-nowrap">Status</TableHead>
+                  <TableHead className="font-semibold whitespace-nowrap">Details</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -86,6 +91,36 @@ export function ResultsDisplay({ fileName, originalHeaders, mappedHeaders, table
                       <Badge variant={row.processingStatus === 'Fetched' ? 'default' : 'secondary'}>
                         {row.processingStatus}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="whitespace-normal max-w-sm text-sm"> {/* Adjusted for details column */}
+                      {row.processingStatus === 'Fetched' ? (
+                        <>
+                          {row.summary && row.summary !== "Due to a website error, the company’s business function could not be determined." && (
+                            <p className="mb-1">{row.summary}</p>
+                          )}
+                          {row.summary === "Due to a website error, the company’s business function could not be determined." && (
+                             <p className="mb-1 text-destructive">{row.summary}</p>
+                          )}
+                          {!row.summary && <p className="mb-1">-</p>}
+
+                          {(row.independenceCriteria || row.insufficientInformation) && (
+                            <div className="mt-1 pt-1 border-t border-border/50">
+                              {row.independenceCriteria && row.independenceCriteria !== "" && (
+                                <p className="text-xs text-muted-foreground">
+                                  <span className="font-medium">Independence Criteria:</span> {row.independenceCriteria}
+                                </p>
+                              )}
+                              {row.insufficientInformation && row.insufficientInformation !== "" && (
+                                <p className="text-xs text-muted-foreground">
+                                  <span className="font-medium">Insufficient Information:</span> {row.insufficientInformation}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

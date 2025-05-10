@@ -1,3 +1,4 @@
+
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getFunctions, httpsCallable, type Functions } from 'firebase/functions';
 
@@ -19,7 +20,6 @@ if (!getApps().length) {
 
 const functionsInstance: Functions = getFunctions(app);
 
-// Define types for callable function arguments and return value (mirroring Cloud Function)
 export interface CompanyInput {
   originalIndex: number;
   companyName?: string;
@@ -27,10 +27,17 @@ export interface CompanyInput {
   website?: string;
 }
 
+export interface CompanyMetadata {
+  summary?: string;
+  independenceCriteria?: string;
+  insufficientInformation?: string;
+  [key: string]: any; // Allows for other potential metadata fields
+}
+
 export interface CompanyMatchResult {
   originalIndex: number;
   matched: boolean;
-  metadata?: any;
+  metadata?: CompanyMetadata;
   error?: string;
 }
 
@@ -44,13 +51,35 @@ export interface ScrapeWebsiteInput {
   url: string;
 }
 
+// This result should align with the Python function's return structure
 export interface ScrapeWebsiteResult {
-  status: string;
-  content: string;
+  status: 'success' | 'error' | 'failed_fetch' | 'failed_parse' | 'short' | 'content_too_short' | 'not_found';
+  content?: string; // Present on success
+  source_url?: string;
+  method?: string;
+  message?: string; // Present on error or specific statuses
+  reason?: string; // Present on error status
+  // Potentially other fields depending on the python function's full output for various cases
 }
+
 
 export const scrapeWebsiteContentCallable = 
   httpsCallable<ScrapeWebsiteInput, ScrapeWebsiteResult>(
     functionsInstance, 
-    'scrape_website_content'
+    'scrape_website_content' // Ensure this matches the deployed Python function name
+  );
+
+// This should match the return type of the summarizeCompanyContent Firebase Function
+export interface SummarizeCompanyContentResult {
+    status: "success" | "error";
+    summary?: string;
+    independenceCriteria?: string;
+    insufficientInformation?: string;
+    message?: string; // For errors
+}
+
+export const summarizeCompanyContentCallable = 
+  httpsCallable<{content: string}, SummarizeCompanyContentResult>(
+    functionsInstance, 
+    'summarizeCompanyContent'
   );
