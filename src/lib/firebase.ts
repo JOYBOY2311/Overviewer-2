@@ -39,3 +39,18 @@ export const checkForExistingCompaniesCallable =
     functionsInstance, 
     'checkForExistingCompanies'
   );
+
+export interface ScrapeWebsiteInput {
+  url: string;
+}
+
+export interface ScrapeWebsiteResult {
+  status: string;
+  content: string;
+}
+
+export const scrapeWebsiteContentCallable = 
+  httpsCallable<ScrapeWebsiteInput, ScrapeWebsiteResult>(
+    functionsInstance, 
+    'scrape_website_content'
+  );

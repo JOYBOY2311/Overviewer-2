@@ -1,6 +1,9 @@
+
 'use strict';
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import { summarizeContent, type SummarizeContentInput, type SummarizeContentOutput, UNUSABLE_CONTENT_RESPONSE } from './summarize-flow';
+
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -159,5 +162,46 @@ export const saveCompanyEntry = functions.https.onCall(async (data: any, context
     return { success: true };
   } catch (error) {
     throw new functions.https.HttpsError('internal', 'Error saving company entry.', error);
+  }
+});
+
+
+export const summarizeCompanyContent = functions.https.onCall(async (data: { content: string }, context) => {
+  functions.logger.info('summarizeCompanyContent called with content length:', data?.content?.length);
+
+  if (!data || typeof data.content !== 'string' || data.content.trim() === '') {
+    functions.logger.error('Invalid input: content must be a non-empty string.');
+    throw new functions.https.HttpsError('invalid-argument', 'The function must be called with an object containing a "content" string field.');
+  }
+
+  const { content } = data;
+
+  try {
+    const input: SummarizeContentInput = { content };
+    functions.logger.info('Calling Genkit summarizeContentFlow with input:', { 
+      contentLength: content.length, 
+      contentSnippet: content.substring(0, 100) + (content.length > 100 ? '...' : '') 
+    });
+
+    const result: SummarizeContentOutput = await summarizeContent(input);
+    
+    functions.logger.info('Genkit summarizeContentFlow returned:', result);
+
+    if (result.summary === UNUSABLE_CONTENT_RESPONSE) {
+      functions.logger.warn('Content was determined unusable by the LLM.');
+      return { status: "error", message: UNUSABLE_CONTENT_RESPONSE };
+    }
+
+    return { status: "success", summary: result.summary };
+
+  } catch (error: any) {
+    functions.logger.error('Error calling or processing summarizeContentFlow:', error);
+    let errorMessage = 'An unexpected error occurred while summarizing content.';
+    if (error.message) {
+      errorMessage = error.message;
+    }
+    // Additional check for Genkit specific errors if identifiable
+    // For example, if error has a 'details' field from HttpsError or specific structure
+    throw new functions.https.HttpsError('internal', errorMessage, error.details || { originalError: error.message });
   }
 });
