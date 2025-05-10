@@ -1,16 +1,22 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { parseXLSX, type ParsedXLSXData } from '@/lib/xlsx-parser';
 import { normalizeUrl } from '@/lib/url-normalizer';
 import { detectHeaders, type DetectHeadersInput, type DetectHeadersOutput } from '@/ai/flows/detect-headers';
+import { checkForExistingCompaniesCallable, type CompanyInput, type CompanyMatchResult } from '@/lib/firebase';
 
 import { FileUploadArea } from '@/components/overviewer/FileUploadArea';
-import { ResultsDisplay, type TableDataRow } from '@/components/overviewer/ResultsDisplay';
+import { ResultsDisplay, type TableDataRow as ResultsTableDataRow } from '@/components/overviewer/ResultsDisplay';
 import { LoadingIndicator } from '@/components/overviewer/LoadingIndicator';
 import { ErrorMessage } from '@/components/overviewer/ErrorMessage';
 import { useToast } from '@/hooks/use-toast';
+
+// Extend TableDataRow to include processingStatus
+interface TableDataRow extends ResultsTableDataRow {
+  processingStatus: 'Fetched' | 'To Process';
+}
 
 interface ProcessedData {
   fileName: string;
@@ -46,32 +52,73 @@ export default function OverviewerPage() {
       const detectedHeaders = await detectHeaders(aiInput);
 
       const companyNameHeader = detectedHeaders.companyName;
+      const countryHeader = detectedHeaders.country;
       const websiteHeader = detectedHeaders.website;
 
-      const companyNameIdx = companyNameHeader ? rawHeaders.indexOf(companyNameHeader) : -1;
-      const websiteIdx = websiteHeader ? rawHeaders.indexOf(websiteHeader) : -1;
+      const companyNameHeaderIdx = companyNameHeader ? rawHeaders.indexOf(companyNameHeader) : -1;
+      const countryHeaderIdx = countryHeader ? rawHeaders.indexOf(countryHeader) : -1;
+      const websiteHeaderIdx = websiteHeader ? rawHeaders.indexOf(websiteHeader) : -1;
+
+      const companiesToCheck: CompanyInput[] = rawDataRows.map((row, index) => {
+        const companyName = companyNameHeaderIdx !== -1 && row[companyNameHeaderIdx] ? String(row[companyNameHeaderIdx]).trim() : undefined;
+        const country = countryHeaderIdx !== -1 && row[countryHeaderIdx] ? String(row[countryHeaderIdx]).trim() : undefined;
+        const website = websiteHeaderIdx !== -1 && row[websiteHeaderIdx] ? String(row[websiteHeaderIdx]).trim() : undefined;
+        
+        return {
+          originalIndex: index,
+          companyName: companyName,
+          country: country,
+          website: website,
+        };
+      });
+
+      let companyMatchResults: CompanyMatchResult[] = [];
+      if (companiesToCheck.length > 0) {
+        try {
+            const { data: functionResult } = await checkForExistingCompaniesCallable({ companies: companiesToCheck });
+            companyMatchResults = functionResult.results;
+        } catch (fbError: any) {
+            console.error("Firebase function error:", fbError);
+            // Show error to user, but continue processing to show data as "To Process"
+            toast({
+                title: "Database Check Error",
+                description: `Could not check for existing company records: ${fbError.message}. Proceeding without pre-fetched data.`,
+                variant: "destructive",
+            });
+            // Populate companyMatchResults with all false if function fails, so rows become "To Process"
+            companyMatchResults = companiesToCheck.map(c => ({ originalIndex: c.originalIndex, matched: false }));
+        }
+      }
+      
+      const companyResultsMap = new Map(companyMatchResults.map(r => [r.originalIndex, r]));
 
       const tableData: TableDataRow[] = rawDataRows.map((row, index) => {
-        const companyName = companyNameIdx !== -1 && row[companyNameIdx] ? String(row[companyNameIdx]).trim() : undefined;
-        const websiteVal = websiteIdx !== -1 && row[websiteIdx] ? String(row[websiteIdx]).trim() : undefined;
+        const companyNameVal = companyNameHeaderIdx !== -1 && row[companyNameHeaderIdx] ? String(row[companyNameHeaderIdx]).trim() : undefined;
+        const websiteVal = websiteHeaderIdx !== -1 && row[websiteHeaderIdx] ? String(row[websiteHeaderIdx]).trim() : undefined;
         
         const normalizedWebsite = normalizeUrl(websiteVal);
         
-        const updatedRowValues = [...row];
-        if (websiteIdx !== -1 && normalizedWebsite !== websiteVal && typeof normalizedWebsite === 'string') {
-           updatedRowValues[websiteIdx] = normalizedWebsite;
-        } else if (websiteIdx !== -1 && typeof websiteVal === 'string' && typeof normalizedWebsite === 'undefined') {
-          // If URL was invalid after normalization, keep original or mark as invalid. For now, keep original if it existed.
-          // Or, if you want to clear invalid URLs: updatedRowValues[websiteIdx] = '';
+        const displayRowValues = [...row.map(String)]; 
+        if (websiteHeaderIdx !== -1 && normalizedWebsite && normalizedWebsite !== String(row[websiteHeaderIdx]).trim().toLowerCase()) {
+           displayRowValues[websiteHeaderIdx] = normalizedWebsite;
         }
 
+        const hasError = !companyNameVal || !normalizedWebsite;
 
-        const hasError = !companyName || !normalizedWebsite;
+        const matchInfo = companyResultsMap.get(index);
+        const processingStatus = matchInfo?.matched ? 'Fetched' : 'To Process';
+        
+        // If Firebase function reported an error for a specific row, mark as 'To Process'
+        // and potentially log or show a specific error for that row if needed in future.
+        if (matchInfo?.error) {
+          console.warn(`Error for row ${index} from Firebase function: ${matchInfo.error}`);
+        }
 
         return {
           id: `row-${index}`,
-          values: updatedRowValues.map(String), // Ensure all values are strings
+          values: displayRowValues,
           hasError,
+          processingStatus,
         };
       });
 
@@ -83,8 +130,8 @@ export default function OverviewerPage() {
       });
 
       toast({
-        title: "File Processed Successfully",
-        description: `Detected headers and data for ${selectedFile.name}.`,
+        title: "File Processed",
+        description: `Analyzed ${selectedFile.name}. Review data and processing status.`,
       });
 
     } catch (e: any) {
@@ -102,7 +149,6 @@ export default function OverviewerPage() {
 
   const handleFileSelect = (selectedFile: File) => {
     setFile(selectedFile);
-    // Automatically process if a new file is selected
     processFile(selectedFile);
   };
   

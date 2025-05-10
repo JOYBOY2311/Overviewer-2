@@ -11,6 +11,7 @@ export interface TableDataRow {
   id: string;
   values: (string | undefined)[];
   hasError: boolean;
+  processingStatus: 'Fetched' | 'To Process';
 }
 
 interface ResultsDisplayProps {
@@ -38,7 +39,7 @@ export function ResultsDisplay({ fileName, originalHeaders, mappedHeaders, table
     <Card className="shadow-lg w-full animate-fadeIn">
       <CardHeader>
         <CardTitle className="text-2xl">Processed Data: {fileName}</CardTitle>
-        <CardDescription>Review the detected headers and preview your data below.</CardDescription>
+        <CardDescription>Review the detected headers, data preview, and processing status below.</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="mb-6 p-4 border rounded-lg bg-card">
@@ -56,13 +57,14 @@ export function ResultsDisplay({ fileName, originalHeaders, mappedHeaders, table
         ) : (
           <ScrollArea className="h-[400px] w-full border rounded-md">
             <Table>
-              <TableHeader className="sticky top-0 bg-muted/50 backdrop-blur-sm">
+              <TableHeader className="sticky top-0 bg-muted/50 backdrop-blur-sm z-10">
                 <TableRow>
                   {originalHeaders.map((header, index) => (
                     <TableHead key={`${header}-${index}`} className="font-semibold whitespace-nowrap">
                       {header}
                     </TableHead>
                   ))}
+                  <TableHead className="font-semibold whitespace-nowrap">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -71,14 +73,20 @@ export function ResultsDisplay({ fileName, originalHeaders, mappedHeaders, table
                     key={row.id}
                     className={cn(
                       "transition-colors duration-300",
-                      row.hasError && "bg-destructive/10 hover:bg-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30"
+                      row.hasError && "bg-destructive/10 hover:bg-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30",
+                      row.processingStatus === 'Fetched' && "bg-primary/10 hover:bg-primary/20"
                     )}
                   >
                     {row.values.map((cell, cellIndex) => (
                       <TableCell key={`${row.id}-cell-${cellIndex}`} className="whitespace-nowrap">
-                        {cell}
+                        {cell === undefined || cell === null ? '' : cell}
                       </TableCell>
                     ))}
+                    <TableCell className="whitespace-nowrap">
+                      <Badge variant={row.processingStatus === 'Fetched' ? 'default' : 'secondary'}>
+                        {row.processingStatus}
+                      </Badge>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
