@@ -7,6 +7,8 @@ import { parseXLSX, type ParsedXLSXData } from '@/lib/xlsx-parser';
 import { normalizeUrl } from '@/lib/url-normalizer';
 import { detectHeaders, type DetectHeadersInput, type DetectHeadersOutput } from '@/ai/flows/detect-headers';
 import { checkForExistingCompaniesCallable, type CompanyInput, type CompanyMatchResult, type CompanyMetadata } from '@/lib/firebase';
+import * as XLSX from 'xlsx';
+import { Loader2 } from 'lucide-react';
 
 import { FileUploadArea } from '@/components/overviewer/FileUploadArea';
 import { ResultsDisplay, type TableDataRow as ResultsTableDataRow } from '@/components/overviewer/ResultsDisplay';
@@ -30,6 +32,7 @@ interface ProcessedData {
 export default function OverviewerPage() {
   const [file, setFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [processedData, setProcessedData] = useState<ProcessedData | null>(null);
   const { toast } = useToast();
@@ -160,7 +163,66 @@ export default function OverviewerPage() {
     setProcessedData(null);
     setError(null);
     setIsLoading(false);
+    setIsExporting(false);
   };
+
+  const handleExportResults = () => {
+    if (!processedData) return;
+    setIsExporting(true);
+
+    try {
+      const { originalHeaders, mappedHeaders, tableData } = processedData;
+
+      const companyNameIdx = mappedHeaders.companyName ? originalHeaders.indexOf(mappedHeaders.companyName) : -1;
+      const countryIdx = mappedHeaders.country ? originalHeaders.indexOf(mappedHeaders.country) : -1;
+      const websiteIdx = mappedHeaders.website ? originalHeaders.indexOf(mappedHeaders.website) : -1;
+
+      const exportableData = tableData
+        .filter(row => !row.hasError) // Filter out rows with missing Company Name or Website
+        .map((row, index) => ({
+          'S. No.': index + 1,
+          'Company Name': companyNameIdx !== -1 ? (row.values[companyNameIdx] || '') : '',
+          'Country': countryIdx !== -1 ? (row.values[countryIdx] || '') : '',
+          'Website': websiteIdx !== -1 ? (row.values[websiteIdx] || '') : '', // Already normalized in displayRowValues
+          'Overview': row.summary || '',
+          'Independence Criteria': row.independenceCriteria || '',
+          'Insufficient Information': row.insufficientInformation || '',
+        }));
+
+      if (exportableData.length === 0) {
+        toast({
+          title: "No Data to Export",
+          description: "There are no valid rows to export.",
+          variant: "default",
+        });
+        setIsExporting(false);
+        return;
+      }
+      
+      const worksheet = XLSX.utils.json_to_sheet(exportableData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Results');
+      XLSX.writeFile(workbook, 'overviewer_results.xlsx');
+
+      toast({
+        title: "Export Successful",
+        description: "Results downloaded as overviewer_results.xlsx",
+      });
+
+    } catch (e: any) {
+      console.error("Export error:", e);
+      setError(e.message || "An unknown error occurred during export.");
+      toast({
+        title: "Export Error",
+        description: e.message || "Could not export the data.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const hasExportableData = processedData && processedData.tableData.some(row => !row.hasError);
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-start p-4 sm:p-8 md:p-12 bg-background">
@@ -187,7 +249,22 @@ export default function OverviewerPage() {
               mappedHeaders={processedData.mappedHeaders}
               tableData={processedData.tableData}
             />
-            <div className="text-center">
+            <div className="text-center space-x-4">
+               <Button 
+                onClick={handleExportResults} 
+                disabled={!hasExportableData || isExporting || isLoading}
+                size="lg"
+                className="bg-primary hover:bg-primary/90"
+              >
+                {isExporting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  'Download Results'
+                )}
+              </Button>
               <Button onClick={handleProcessAnotherFile} variant="outline" size="lg">
                 Process Another File
               </Button>
