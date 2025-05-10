@@ -83,3 +83,16 @@ export const summarizeCompanyContentCallable =
     functionsInstance, 
     'summarizeCompanyContent'
   );
+
+export interface SaveCompanyEntryData {
+  companyName?: string;
+  country?: string;
+  website?: string; // Should be the normalized URL
+  metadata: CompanyMetadata;
+}
+
+export const saveCompanyEntryCallable = 
+  httpsCallable<SaveCompanyEntryData, { success: boolean }>(
+    functionsInstance, 
+    'saveCompanyEntry'
+  );
